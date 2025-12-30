@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import os
 import requests
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 from .geocode_cache import get_cached, set_cached
 
-load_dotenv()
+load_dotenv(find_dotenv(), override=False)
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
