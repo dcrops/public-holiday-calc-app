@@ -7,8 +7,11 @@ from src.address_holidays.service import lookup_address_info
 
 st.set_page_config(page_title="AU Address → LGA + Public Holidays", page_icon="🗺️", layout="wide")
 
-st.title("🗺️ Address → LGA + Public Holidays (VIC MVP)")
-st.caption("Enter an Australian address. We'll geocode it, find the LGA, and list VIC public holidays for the selected year.")
+st.title("🗺️ Australian Address → LGA & Public Holidays")
+st.caption(
+    "Enter an Australian address. The app geocodes it, resolves the LGA, "
+    "and lists applicable national, state, and regional public holidays for the selected year."
+)
 
 office_address = st.text_input("Office address", placeholder="e.g. 123 Collins St, Melbourne VIC")
 home_address = st.text_input("Home address", placeholder="e.g. 10 Smith St, Brunswick VIC")
