@@ -1,13 +1,16 @@
-🇦🇺 Address → LGA & Public Holidays (Australia)
+🇦🇺 AU Address → LGA & Public Holidays
 
 A production-ready Streamlit application that resolves Australian public holidays for a given address — including state, LGA-level, and locality-specific regional holidays — with support for payroll validation and batch processing.
 
-This tool is designed to handle real-world edge cases that standard holiday APIs often miss, such as regional show days and council-specific race days.
+Why this exists
+
+Australian public holidays are not uniform. Many apply only to specific LGAs or even individual towns (e.g. regional show days).
+Most holiday APIs stop at the state level — this app explicitly models and resolves those real-world edge cases.
 
 ✨ Features
 🔍 Address Resolution
 
-Geocodes Australian addresses using Google Geocoding API
+Geocodes Australian addresses using the Google Geocoding API
 
 Extracts:
 
@@ -23,9 +26,10 @@ Resolves Local Government Area (LGA) via spatial lookup
 
 Uses a precomputed, simplified GeoJSON artifact (~11.5 MB)
 
-Supports all Australian LGAs
+Covers all Australian LGAs
 
-Designed for fast startup and cloud deployment (no large GIS files at runtime)
+Designed for fast startup and cloud deployment
+(no large GIS files required at runtime)
 
 📅 Public Holiday Coverage
 
@@ -41,7 +45,7 @@ Postcode-based (optional)
 
 🧾 Payroll-Aware Logic
 
-OFFICE vs HOME work location handling
+OFFICE vs HOME work-location handling
 
 Optional pay-period filtering
 
@@ -49,11 +53,9 @@ Per-employee holiday counts
 
 📦 Batch Mode (CSV)
 
-Upload a payroll CSV
+Upload payroll CSVs with mixed states and locations
 
-Mixed states and locations supported
-
-Per-row error handling (one bad row won’t fail the batch)
+Per-row validation (one bad row won’t fail the batch)
 
 Export payroll-ready results
 
@@ -61,11 +63,11 @@ Export payroll-ready results
 
 SQLite-backed geocode caching
 
-Deterministic results
+Deterministic, repeatable results
 
-Render-friendly deployment (no large runtime downloads)
+Optimised for Render deployment
 
-🧠 How Holiday Logic Works
+🧠 How Holiday Resolution Works
 
 Holidays are resolved in layers:
 
@@ -75,53 +77,55 @@ National + state/territory public holidays
 
 Regional rules
 
-Applied if the address matches:
+Applied when the address matches:
 
 an LGA
 
-a locality (town/suburb)
+a locality
 
 or a postcode
 
-De-duplication
+Merge & de-duplication
 
-Regional holidays override or supplement base holidays where applicable
+Regional holidays supplement base holidays where applicable
 
-This layered approach mirrors how payroll systems must handle Australian award compliance.
+This mirrors how Australian payroll and award compliance works in practice.
 
 🏛️ State vs LGA vs Locality Holidays
 Level	Applies To	Example
-State	Entire state/territory	VIC Labour Day
+State	Entire state / territory	VIC Labour Day
 LGA	Entire council area	Ballarat Cup Day
-Locality	Specific town/suburb	Cairns Show Day
+Locality	Specific town / suburb	Cairns Show Day
 
-Some holidays apply only to a town (not the whole council).
+Some holidays apply to a town but not the entire council.
 This app models that distinction explicitly.
 
-🚀 Live Deployment
+📌 Example Use Case
 
-The app is deployed on Render as a Web Service.
+A payroll team needs to validate whether an employee working from Ballarat during November 2025 is entitled to a local public holiday.
 
-Key deployment considerations:
+Standard holiday APIs miss Ballarat Cup Day
 
-No large .gpkg files committed to Git
+This app:
 
-Simplified GeoJSON artifact used at runtime
+resolves the employee’s LGA
 
-Environment variables injected via Render
+applies the correct regional rule
 
-🧪 Testing Approach
+includes the holiday in payroll calculations
+
+🧪 Usage & Testing
 Single Lookup
 
 Returns all applicable holidays for a selected year
 
-Intended for exploratory checks
+Intended for exploratory checks and validation
 
 Batch Mode
 
 Supports pay-period filtering
 
-Intended for payroll validation
+Intended for payroll and compliance validation
 
 Mixed states and locations supported
 
