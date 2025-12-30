@@ -1,0 +1,7 @@
+date,name,state,match_type,match_value,scope,applies_to,source,notes
+2025-11-03,Ballarat Cup Day,VIC,LGA,Ballarat,FULL_DAY,ALL,https://business.vic.gov.au,...
+2025-08-21,NSW Sucks Day,NSW,LOCALITY,Albury,FULL_DAY,ALL,source_url,notes
+2025-08-25,VIC Rules Day,NSW,LOCALITY,Albury,FULL_DAY,ALL,source_url,notes
+2025-08-03,Brisbane Show Day,QLD,LOCALITY,Brisbane,FULL_DAY,ALL,source_url,Ekka public holiday
+2025-07-15,Cairns Show Day,QLD,LOCALITY,Cairns,FULL_DAY,ALL,source_url,Show holiday
+

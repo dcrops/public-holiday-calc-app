@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+
+# Local cache
+cache/geocode_cache.db
+
+# Inputs / scratch data
+batch_inputs/
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
