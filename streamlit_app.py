@@ -61,20 +61,38 @@ if st.button("Lookup", type="primary"):
     with col1:
         st.subheader("🏢 Office location")
         if office_result:
-            st.metric("Public holidays", office_result.get("holiday_count", 0))
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Public holidays", office_result.get("holiday_count", 0))
+            m2.metric("Status", office_result.get("status", "-"))
+            m3.metric("Confidence", f"{office_result.get('confidence', 0):.2f}")
+
+            st.caption(office_result.get("audit_message", ""))
+
+            if office_result.get("manual_review"):
+                status = office_result.get("status")
+                if status == "LOW_CONFIDENCE":
+                    st.warning("Manual review recommended — the address was resolved with lower geocoding confidence.")
+                elif status == "NOT_FOUND":
+                    st.error("Address could not be resolved. Please check spelling or add suburb + state/postcode.")
+                else:
+                    st.warning("Manual review recommended — please check the audit details.")
+
+
             st.text(office_result.get("formatted_address", ""))
 
-            if office_result.get("is_fallback_match"):
-                st.warning("Address not found exactly — using suburb-level match for lookup.")
+            with st.expander("Audit details"):
+                st.json({
+                    "status": office_result.get("status"),
+                    "manual_review": office_result.get("manual_review"),
+                    "confidence": office_result.get("confidence"),
+                    "geocode_provider": office_result.get("geocode_provider"),
+                    "geocode_quality": office_result.get("geocode_quality"),
+                    "lga_resolution_method": office_result.get("lga_resolution_method"),
+                    "rules_applied": office_result.get("rules_applied"),
+                    "replacement_applied": office_result.get("replacement_applied"),
+                })
 
-
-            st.markdown("**Details**")
-            st.markdown(f"- **State:** {office_result.get('state') or '-'}")
-            st.markdown(f"- **Postcode:** {office_result.get('postcode') or '-'}")
-            st.markdown(f"- **Locality:** {office_result.get('locality') or '-'}")
-            st.markdown(f"- **LGA:** {office_result.get('lga') or '-'}")
-
-            # 🔎 Debug block (ADD THIS)
+            # 🔎 Debug block (Office)
             if show_debug:
                 st.code(
                     {
@@ -85,26 +103,46 @@ if st.button("Lookup", type="primary"):
                     },
                     language="json",
                 )
-
             st.dataframe(office_result.get("holidays", []), use_container_width=True)
         else:
             st.info("No office address provided.")
 
 
+
+
     with col2:
         st.subheader("🏢 Home location")
         if home_result:
-            st.metric("Public holidays", home_result.get("holiday_count", 0))
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Public holidays", home_result.get("holiday_count", 0))
+            m2.metric("Status", home_result.get("status", "-"))
+            m3.metric("Confidence", f"{home_result.get('confidence', 0):.2f}")
+
+            st.caption(home_result.get("audit_message", ""))
+
+            if home_result.get("manual_review"):
+                status = home_result.get("status")
+                if status == "LOW_CONFIDENCE":
+                    st.warning("Manual review recommended — the address was resolved with lower geocoding confidence.")
+                elif status == "NOT_FOUND":
+                    st.error("Address could not be resolved. Please check spelling or add suburb + state/postcode.")
+                else:
+                    st.warning("Manual review recommended — please check the audit details.")
+
+
             st.text(home_result.get("formatted_address", ""))
 
-            if home_result.get("is_fallback_match"):
-                st.warning("Address not found exactly — using suburb-level match for lookup.")
-
-            st.markdown("**Details**")
-            st.markdown(f"- **State:** {home_result.get('state') or '-'}")
-            st.markdown(f"- **Postcode:** {home_result.get('postcode') or '-'}")
-            st.markdown(f"- **Locality:** {home_result.get('locality') or '-'}")
-            st.markdown(f"- **LGA:** {home_result.get('lga') or '-'}")
+            with st.expander("Audit details"):
+                st.json({
+                    "status": home_result.get("status"),
+                    "manual_review": home_result.get("manual_review"),
+                    "confidence": home_result.get("confidence"),
+                    "geocode_provider": home_result.get("geocode_provider"),
+                    "geocode_quality": home_result.get("geocode_quality"),
+                    "lga_resolution_method": home_result.get("lga_resolution_method"),
+                    "rules_applied": home_result.get("rules_applied"),
+                    "replacement_applied": home_result.get("replacement_applied"),
+                })
 
             # 🔎 Debug block (ADD THIS)
             if show_debug:

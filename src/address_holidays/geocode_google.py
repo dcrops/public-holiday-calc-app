@@ -18,7 +18,6 @@ STATE_MAP = {
     "Australian Capital Territory": "ACT",
 }
 
-
 load_dotenv(find_dotenv(), override=False)
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -28,20 +27,71 @@ GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 def _simplify_address_for_fallback(address: str) -> str:
     """
     Remove likely street-number + street-name parts and keep suburb/state/postcode-ish tokens.
-    This is a best-effort fallback when full address geocode returns ZERO_RESULTS.
+    Best-effort fallback when full address geocode returns ZERO_RESULTS.
     """
     a = address.strip()
 
-    # If user typed comma-separated parts, keep the last 1–2 parts (often suburb/state/postcode)
     parts = [p.strip() for p in a.split(",") if p.strip()]
     if len(parts) >= 2:
         return ", ".join(parts[-2:])  # e.g. "Brunswick VIC 3056"
 
-    # Otherwise, strip a leading street number and common street suffix words
     a = re.sub(r"^\s*\d+\s+", "", a)  # drop leading house number
-    a = re.sub(r"\b(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ct|court|ln|lane|pde|parade)\b\.?", "", a, flags=re.I)
+    a = re.sub(
+        r"\b(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ct|court|ln|lane|pde|parade)\b\.?",
+        "",
+        a,
+        flags=re.I,
+    )
     a = " ".join(a.split())
     return a
+
+
+def _looks_like_street_address(query: str) -> bool:
+    """
+    True if the user likely intended a street-level address.
+    IMPORTANT: postcodes contain digits too, so digits alone isn't enough.
+    """
+    q = f" {query.lower()} "
+
+    street_tokens = [
+        " street", " st ", " road", " rd ",
+        " avenue", " ave ", " boulevard", " blvd",
+        " lane", " ln ", " drive", " dr ",
+        " court", " ct ", " parade", " pde",
+    ]
+
+    has_street_word = any(tok in q for tok in street_tokens)
+    has_number = any(ch.isdigit() for ch in q)
+
+    return has_number and has_street_word
+
+
+def _is_street_level_result(result: dict) -> bool:
+    """True only when Google likely resolved a real street-level address."""
+    if result.get("partial_match") is True:
+        return False
+
+    types = set(result.get("types", []))
+
+    # Strong street-level indicators
+    if types & {"street_address", "premise", "subpremise"}:
+        return True
+
+    # If it's only locality/postcode/admin-level, it's not street-level
+    if types & {
+        "postal_code",
+        "locality",
+        "administrative_area_level_1",
+        "administrative_area_level_2",
+    }:
+        return False
+
+    # Fallback: check address_components include BOTH route and street_number
+    component_types = set()
+    for c in result.get("address_components", []):
+        component_types.update(c.get("types", []))
+
+    return "route" in component_types and "street_number" in component_types
 
 
 def geocode_address(address: str) -> dict:
@@ -67,8 +117,16 @@ def geocode_address(address: str) -> dict:
         if status != "OK":
             raise ValueError(f"Geocoding failed: {status}")
 
-
         result = data["results"][0]
+
+        # Only enforce street-level quality when the user intended a street-level address.
+        # Allow suburb/postcode-only queries to resolve (they'll be lower confidence downstream).
+        if _looks_like_street_address(query) and not _is_street_level_result(result):
+            raise ValueError(
+                "Address not found. Try adding suburb + state/postcode (e.g. 'Brunswick VIC 3056') "
+                "or check spelling."
+            )
+
         location = result["geometry"]["location"]
 
         components = {}
@@ -84,7 +142,6 @@ def geocode_address(address: str) -> dict:
             or components.get("administrative_area_level_2")
         )
 
-        # Normalise state code if you already do this
         state_code = STATE_MAP.get(state, state)
 
         return {
@@ -94,14 +151,17 @@ def geocode_address(address: str) -> dict:
             "state": state_code,
             "postcode": postcode,
             "locality": locality,
-            "geocode_query_used": query,          # <— new (debug)
-            "is_fallback_match": query != address # <— new (flag)
+            "geocode_query_used": query,
+            "is_fallback_match": query.strip() != address.strip(),
+            # Optional: pass through quality signal if you want it later
+            "location_type": result.get("geometry", {}).get("location_type"),
         }
 
     try:
         result_obj = _call_geocode(address)
     except ValueError as e:
-        # Only retry if the failure is ZERO_RESULTS
+        # Only retry if the failure came from ZERO_RESULTS
+        # (Street-level rejection should NOT auto-fallback silently)
         if "ZERO_RESULTS" not in str(e):
             raise
 
@@ -113,4 +173,3 @@ def geocode_address(address: str) -> dict:
 
     set_cached(cache_key, result_obj)
     return result_obj
-
