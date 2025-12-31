@@ -10,4 +10,6 @@ date,name,state,match_type,match_value,scope,applies_to,source,notes
 2025-09-15,Sydney Rd Music Festival,VIC,LGA,Merri-bek,FULL_DAY,ALL,source_url,Show holiday
 2025-09-15,Geelong Festival,VIC,LGA,Greater Geelong,FULL_DAY,ALL,source_url,Show holiday
 2025-10-15,Geelong Show day,VIC,LOCALITY,Geelong,FULL_DAY,ALL,source_url,Show holiday
+2025-10-15,Brighton Show day,VIC,LOCALITY,Brighton,FULL_DAY,ALL,source_url,Show holiday
+2025-06-15,Darwin Croc Show day,NT,LOCALITY,Darwin,FULL_DAY,ALL,source_url,Show holiday
 

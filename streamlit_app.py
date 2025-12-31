@@ -32,13 +32,29 @@ if st.button("Lookup", type="primary"):
             try:
                 office_result = lookup_address_info(office_address, int(year))
             except Exception as e:
-                st.error(f"Office lookup failed: {e}")
+                msg = str(e)
+                if "Address not found" in msg or "ZERO_RESULTS" in msg:
+                    st.error(
+                        "Address not found. Try adding suburb + state/postcode "
+                        "(e.g. 'Brunswick VIC 3056') or check spelling."
+                    )
+                else:
+                    st.error(f"Office lookup failed: {e}")
+
 
         if home_address.strip():
             try:
                 home_result = lookup_address_info(home_address, int(year))
             except Exception as e:
-                st.exception(e)
+                msg = str(e)
+                if "Address not found" in msg or "ZERO_RESULTS" in msg:
+                    st.error(
+                        "Address not found. Try adding suburb + state/postcode "
+                        "(e.g. 'Brunswick VIC 3056') or check spelling."
+                    )
+                else:
+                    st.error(f"Home lookup failed: {e}")
+
 
     col1, col2 = st.columns([3, 3])
 
@@ -47,6 +63,10 @@ if st.button("Lookup", type="primary"):
         if office_result:
             st.metric("Public holidays", office_result.get("holiday_count", 0))
             st.text(office_result.get("formatted_address", ""))
+
+            if office_result.get("is_fallback_match"):
+                st.warning("Address not found exactly — using suburb-level match for lookup.")
+
 
             st.markdown("**Details**")
             st.markdown(f"- **State:** {office_result.get('state') or '-'}")
@@ -76,6 +96,9 @@ if st.button("Lookup", type="primary"):
         if home_result:
             st.metric("Public holidays", home_result.get("holiday_count", 0))
             st.text(home_result.get("formatted_address", ""))
+
+            if home_result.get("is_fallback_match"):
+                st.warning("Address not found exactly — using suburb-level match for lookup.")
 
             st.markdown("**Details**")
             st.markdown(f"- **State:** {home_result.get('state') or '-'}")
