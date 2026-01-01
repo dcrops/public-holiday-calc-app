@@ -1,72 +1,152 @@
-# Case Study
-## Preventing Payroll Underpayment via Location-Aware Public Holiday Resolution
-
-### Problem
-Australian public holidays are **not uniform**. While national and state holidays are well understood, many public holidays apply only to specific **Local Government Areas (LGAs)** or even individual **towns or suburbs** (for example, regional race days and agricultural show days).
-
-Most payroll systems:
-- Rely on **state-level holiday calendars**
-- Do not account for **LGA- or locality-specific observances**
-- Struggle with **remote and hybrid work arrangements**
-
-These gaps have led to **systemic payroll underpayments**, large-scale remediation programs, and regulatory scrutiny across major Australian employers, including banks.
 
 ---
 
-### Objective
-Design and implement a **deterministic, explainable system** that accurately resolves public holidays for Australian employees based on their **actual work location**, including:
-- State-wide holidays
-- LGA-level regional holidays
-- Locality-specific observances
+# 📄 `CASE_STUDY.md`
 
-The solution needed to be:
-- Auditable
-- Payroll-safe
-- Resistant to silent misclassification
-- Deployable in a cloud environment
+```markdown
+# Case Study: Australian Address → LGA & Public Holidays
 
----
+## Overview
 
-### Solution Overview
-I built a production-ready application that resolves public holidays for Australian addresses by combining:
+This project was built to address a recurring real-world problem in Australian payroll and HR systems:
 
-- **Geocoding**
-  - Converts free-text addresses into structured location data (state, locality, postcode, latitude/longitude)
+> **Public holiday applicability is often location-specific and difficult to automate correctly.**
 
-- **Spatial LGA Resolution**
-  - Determines the governing LGA using point-in-polygon spatial lookup
-
-- **Layered Holiday Logic**
-  - National and state holidays sourced from **Nager.Date**
-  - Regional holidays modelled explicitly via curated rules:
-    - LGA-scoped
-    - Locality-scoped
-    - Postcode-scoped (optional)
-
-- **Payroll-Aware Processing**
-  - OFFICE vs HOME work location handling
-  - Optional pay-period filtering
-  - Batch CSV processing with per-row error isolation
+The goal was to build a tool that prioritises **correctness, transparency, and auditability** over silent automation.
 
 ---
 
-### Key Design Decisions
+## Problem Statement
 
-#### Explicit Scope Modelling
-Rather than assuming all holidays are state-wide, the system distinguishes between:
-- **State** holidays (apply to everyone in a state)
-- **LGA** holidays (apply to an entire council)
-- **Locality** holidays (apply only to a specific town or suburb)
-
-This avoids common over-application or under-application errors.
-
----
-
-#### Conservative Matching
-Holiday rules match on **exact, normalised identifiers**:
+Australian public holidays can vary by:
 - State
-- LGA
-- Locality
-- Postcode
+- Local Government Area (LGA)
+- Locality or postcode
+- Replacement rules (e.g. local holidays replacing Melbourne Cup Day)
+- Employee work location (OFFICE vs HOME)
 
-No fuzzy matching or heuristic
+Many systems:
+- Assume state-wide applicability
+- Rely on postcodes instead of spatial boundaries
+- Silently accept approximate address matches
+
+This creates compliance and payroll risk.
+
+---
+
+## Design Goals
+
+1. **No false positives**
+   - It is better to return `NOT_FOUND` than an incorrect LGA
+2. **Explicit confidence**
+   - Every result should communicate how trustworthy it is
+3. **Auditability**
+   - Each decision must be explainable after the fact
+4. **Data-driven rules**
+   - Regional holidays should be configurable without code changes
+5. **Low operational complexity**
+   - Minimal infrastructure, easy local or hosted deployment
+
+---
+
+## Architecture Summary
+
+1. **Geocoding**
+   - Google Geocoding API
+   - Local SQLite cache to reduce API calls
+   - Strict validation to reject vague or centroid-only matches
+
+2. **Spatial LGA Resolution**
+   - ASGS Edition 3 Non-ABS Structures
+   - Polygon-based point-in-area lookup
+
+3. **Holiday Calculation**
+   - Base national/state holidays via Nager.Date
+   - Regional and replacement holidays via CSV rule engine
+
+4. **Confidence & Audit Layer**
+   - Status classification (`OK`, `LOW_CONFIDENCE`, `NOT_FOUND`)
+   - Confidence score
+   - Manual review flag
+   - Human-readable audit message
+
+5. **User Interface**
+   - Streamlit UI for single lookups
+   - Batch CSV processing for payroll scenarios
+   - Debug and audit views for validation
+
+---
+
+## Key Technical Challenges
+
+### 1. Preventing False Positives
+Google will often resolve invalid addresses to:
+- Postcode centroids
+- State-level locations
+
+The solution was to:
+- Detect user intent (street-level vs suburb-level)
+- Reject matches that do not meet the required granularity
+- Surface uncertainty explicitly instead of guessing
+
+---
+
+### 2. Regional Holiday Replacement Logic
+Some LGAs observe:
+- A local holiday **instead of** a state holiday
+
+The system supports:
+- Rule-based replacements
+- Explicit tracking of which holidays were removed or added
+- Audit visibility for downstream review
+
+---
+
+### 3. Trust & Compliance Considerations
+Payroll users need to know:
+- *Why* a holiday was included
+- *How confident* the system is
+- *What to review manually*
+
+This led to a design that prefers:
+- Conservative results
+- Clear warnings
+- Zero silent assumptions
+
+---
+
+## Outcomes
+
+- Fully functional production-ready prototype
+- Handles valid, ambiguous, and invalid addresses correctly
+- Supports both interactive and batch payroll workflows
+- Provides a defensible audit trail suitable for compliance review
+
+---
+
+## Lessons Learned
+
+- Correctness beats automation in compliance-heavy domains
+- Confidence signalling is as important as the result itself
+- Data-driven rule engines scale better than hard-coded logic
+- “Failing safely” builds trust faster than appearing smart
+
+---
+
+## Future Considerations
+
+If extended further, this project could:
+- Expose an internal API
+- Support alternative geocoding providers
+- Add role-based access controls
+- Support customer-managed data hosting
+
+These were intentionally out of scope for the initial build.
+
+---
+
+## Final Note
+
+This project was built as a **problem-focused engineering exercise**, prioritising clarity, correctness, and trust over feature count or speed.
+
+It demonstrates an approach suitable for regulated or compliance-adjacent environments.

@@ -1,126 +1,94 @@
-# 🇦🇺 AU Address → LGA & Public Holidays
+# Australian Address → LGA & Public Holidays
 
-A production-ready **Streamlit application** that resolves Australian public holidays for a given address — including **state**, **LGA-level**, and **locality-specific regional holidays** — with support for **payroll validation** and **batch processing**.
+A production-ready Streamlit application that resolves Australian addresses to LGAs and determines applicable public holidays, including state and regional variations, with a transparent audit trail and confidence indicators.
 
-This tool is designed to handle real-world edge cases that standard holiday APIs often miss, such as **regional show days**, **council race days**, and **local observances**.
-
----
-
-## ✨ Features
-
-### 📍 Address Resolution
-Geocodes Australian addresses using the **Google Geocoding API**, extracting:
-- State / Territory
-- Locality (suburb / town)
-- Postcode
-- Latitude / Longitude
+This tool is designed for **payroll, HR, and compliance support**, where public holiday applicability depends on *location*, *work mode*, and *local rules*.
 
 ---
 
-### 🗺️ Accurate LGA Mapping (AU-wide)
-- Resolves **Local Government Area (LGA)** via spatial point-in-polygon lookup
-- Uses a **precomputed, simplified GeoJSON artifact (~11.5 MB)**
-- Covers **all Australian LGAs**
-- Optimised for fast startup and cloud deployment  
-  *(no large GIS files at runtime)*
+## ✨ Key Features
+
+- 🇦🇺 **Australian address geocoding**
+  - Google Geocoding API with local SQLite caching
+  - Strict validation to prevent false-positive matches
+  - Supports street-level and suburb/postcode inputs with confidence signalling
+
+- 🏛️ **LGA resolution**
+  - Nationwide coverage using ASGS Edition 3 Non-ABS Structures
+  - Polygon-based spatial lookup (no postcode shortcuts)
+
+- 📅 **Public holiday calculation**
+  - National & state holidays via Nager.Date
+  - Regional and local holidays via data-driven CSV rules
+  - Supports holiday replacements (e.g. Melbourne Cup Day substitutions)
+
+- 🏢🏠 **OFFICE vs HOME payroll logic**
+  - Calculates applicable holidays based on employee work location
+  - Supports hybrid and remote work scenarios
+
+- 📦 **Batch CSV processing**
+  - Upload payroll-style CSVs
+  - Export auditable results
+  - Per-row status, confidence score, and audit messages
+
+- 🔍 **Audit & confidence model**
+  - Explicit status per lookup: `OK`, `LOW_CONFIDENCE`, `NOT_FOUND`
+  - Manual review flag where appropriate
+  - Clear explanation of how each result was derived
 
 ---
 
-### 📅 Public Holiday Coverage
+## 🚦 Why this exists
 
-#### National & State Holidays
-- Sourced from **Nager.Date**
-- Automatically filtered by state / territory
+Public holiday applicability in Australia is **not always state-wide**.
 
-#### Regional Holidays (Curated Rules)
-Supports holidays that are **not reliably available via public APIs**, including:
-- **LGA-based** holidays (e.g. *Ballarat Cup Day*)
-- **Locality-based** holidays (e.g. *Cairns Show Day*)
-- Optional postcode-based rules
+Examples include:
+- Victorian LGAs that observe local holidays instead of Melbourne Cup Day
+- Regional festivals applying only to specific towns or councils
+- Hybrid work arrangements affecting payroll obligations
 
-Rules are explicitly modelled to avoid silent over- or under-application.
+This tool helps answer:
 
----
+> *“Which public holidays apply to this employee, and how confident are we in that answer?”*
 
-### 💼 Payroll-Aware Logic
-- Supports **OFFICE vs HOME** work locations
-- Optional **pay-period filtering**
-- Clearly differentiates:
-  - State holidays
-  - Regional (LGA / locality) holidays
-- Designed for auditability and compliance
+It is intended as **decision-support**, not an automated payroll engine.
 
 ---
 
-### 📦 Batch Processing (CSV)
-Upload a CSV to validate public holidays across multiple employees.
+## 🧠 Status & Confidence Model
 
-Supports:
-- OFFICE / HOME work modes
-- Row-level overrides (year, pay period)
-- Per-row error isolation
-- CSV export of results
+Each lookup returns:
 
-A downloadable template is included in the UI.
+| Status | Meaning |
+|------|--------|
+| `OK` | High-confidence address resolution |
+| `LOW_CONFIDENCE` | Approximate resolution (manual review recommended) |
+| `NOT_FOUND` | Address could not be resolved safely |
 
----
-
-## 🧠 Why This Exists
-
-Australian public holidays are **not uniform**.
-
-Many payroll systems:
-- Rely only on state-level calendars
-- Ignore LGA or locality-specific holidays
-- Break down for remote and hybrid workforces
-
-These gaps have historically led to **large-scale payroll underpayments** across major Australian employers.
-
-This application demonstrates how to **correctly model and resolve** those edge cases in a deterministic, explainable way.
+Confidence scores are **directional**, not absolute, and are surfaced transparently in both the UI and batch outputs.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🔐 Data & Privacy
 
-### `streamlit_app.py`
-- UI layer
-- Handles user input and batch uploads
-- Displays resolved holidays and payroll metrics
+- No employee names or payroll values are required
+- Uploaded CSVs are processed **in memory**
+- No payroll data is persisted
+- Local cache stores only:
+  - formatted address
+  - latitude / longitude
+  - state, postcode, locality
+- All geocoding is performed via Google Maps API
 
-### `service.py`
-- Orchestrates the full lookup flow:
-  - Geocoding
-  - LGA resolution
-  - Holiday retrieval
-  - Regional rule application
-  - Pay-period filtering
-
-### `geocode_google.py`
-- Google Geocoding API integration
-- Extracts structured address components
-- Includes SQLite-based caching
-
-### `lga_lookup.py`
-- Spatial LGA resolution using simplified GeoJSON
-- Point-in-polygon lookup
-- Cached in memory per app process
-
-### `holidays_au.py`
-- Fetches AU public holidays from Nager.Date
-- Filters by subdivision (state / territory)
-
-### `regional_rules.py`
-- Loads curated regional holiday rules from CSV
-- Matches rules by:
-  - State
-  - LGA
-  - Locality
-  - Postcode (optional)
-- Merges regional holidays with base holidays
+The app is designed with **privacy-by-default** principles.
 
 ---
 
-## 📂 Regional Holiday Rules
+## 📄 Batch CSV Format
 
-Curated rules live in:
+Example input:
 
+```csv
+employee_id,office_address,home_address,work_mode,year,start_date,end_date
+E001,"1 Collins St, Melbourne VIC 3000","",OFFICE,2025,2025-01-01,2025-12-31
+E002,"","Brunswick VIC 3056",HOME,2025,2025-01-01,2025-12-31
