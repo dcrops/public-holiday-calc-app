@@ -23,27 +23,36 @@ load_dotenv(find_dotenv(), override=False)
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
+CACHE_VERSION = "v3"
 
-def _simplify_address_for_fallback(address: str) -> str:
+
+def _simplify_address_for_fallback(address: str) -> tuple[str, str]:
     """
-    Remove likely street-number + street-name parts and keep suburb/state/postcode-ish tokens.
-    Best-effort fallback when full address geocode returns ZERO_RESULTS.
+    Returns (simplified_query, fallback_level)
+    fallback_level ∈ {"SUBURB", "STATE", "UNKNOWN"}
     """
     a = address.strip()
 
     parts = [p.strip() for p in a.split(",") if p.strip()]
     if len(parts) >= 2:
-        return ", ".join(parts[-2:])  # e.g. "Brunswick VIC 3056"
+        simplified = ", ".join(parts[-2:])
+        return simplified, "SUBURB"
 
-    a = re.sub(r"^\s*\d+\s+", "", a)  # drop leading house number
-    a = re.sub(
+    # Strip street number and street words
+    stripped = re.sub(r"^\s*\d+\s+", "", a)
+    stripped = re.sub(
         r"\b(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ct|court|ln|lane|pde|parade)\b\.?",
         "",
-        a,
+        stripped,
         flags=re.I,
-    )
-    a = " ".join(a.split())
-    return a
+    ).strip()
+
+    # If we end up with something very short, it's likely state-level
+    if len(stripped.split()) <= 2:
+        return stripped, "STATE"
+
+    return stripped, "UNKNOWN"
+
 
 
 def _looks_like_street_address(query: str) -> bool:
@@ -95,7 +104,8 @@ def _is_street_level_result(result: dict) -> bool:
 
 
 def geocode_address(address: str) -> dict:
-    cache_key = " ".join(address.lower().split())
+    cache_key = f"{CACHE_VERSION}|" + " ".join(address.lower().split())
+
 
     cached = get_cached(cache_key)
     if cached:
@@ -165,11 +175,19 @@ def geocode_address(address: str) -> dict:
         if "ZERO_RESULTS" not in str(e):
             raise
 
-        fallback_query = _simplify_address_for_fallback(address)
+        fallback_query, fallback_level = _simplify_address_for_fallback(address)
+
+        # 🚫 Never allow state-level fallback
+        if fallback_level == "STATE":
+            raise ValueError(
+                "Address not found. Street-level address could not be resolved."
+            )
+
         if fallback_query.strip() and fallback_query.strip() != address.strip():
             result_obj = _call_geocode(fallback_query)
         else:
             raise
+
 
     set_cached(cache_key, result_obj)
     return result_obj

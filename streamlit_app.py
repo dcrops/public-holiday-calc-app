@@ -246,6 +246,14 @@ if uploaded:
                     "holiday_dates_in_period": "; ".join(
                         h.get("date", "") for h in holidays_in_period if h.get("date")
                     ),
+                    "status": r.get("status"),
+                    "manual_review": r.get("manual_review"),
+                    "confidence": r.get("confidence"),
+                    "audit_message": r.get("audit_message"),
+                    "geocode_quality": r.get("geocode_quality") or r.get("location_type"),
+                    "lga_resolution_method": r.get("lga_resolution_method"),
+                    "rules_applied": "; ".join(r.get("rules_applied", [])),
+                    "replacement_applied": r.get("replacement_applied"),
                 })
             except Exception as e:
                 results.append({

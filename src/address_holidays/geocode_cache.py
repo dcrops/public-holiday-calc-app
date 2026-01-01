@@ -86,3 +86,24 @@ def set_cached(cache_key: str, geo: dict) -> None:
         conn.commit()
     finally:
         conn.close()
+
+def clear_cache() -> int:
+    """Delete all cached geocodes. Returns number of rows deleted."""
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM geocode_cache")
+        conn.commit()
+        return cur.rowcount or 0
+    finally:
+        conn.close()
+
+
+def delete_cache_key(cache_key: str) -> int:
+    """Delete a single cache entry by key. Returns 1 if deleted, else 0."""
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM geocode_cache WHERE cache_key = ?", (cache_key,))
+        conn.commit()
+        return cur.rowcount or 0
+    finally:
+        conn.close()
