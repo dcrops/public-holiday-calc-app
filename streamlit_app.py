@@ -190,10 +190,25 @@ st.caption("Upload a CSV with OFFICE/HOME work_mode. The app will calculate holi
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
 
-default_year = st.selectbox("Default year (used if missing in CSV)", [2024, 2025, 2026, 2027], index=1)
+default_year = st.selectbox(
+    "Default year (used only if missing in CSV)",
+    options=[2024, 2025, 2026, 2027],
+    index=1,
+)
 
-default_start = st.date_input("Default pay period start (optional)", value=None)
-default_end = st.date_input("Default pay period end (optional)", value=None)
+default_start = st.date_input(
+    "Default pay period start (used only if missing in CSV)",
+    value=None,
+)
+
+default_end = st.date_input(
+    "Default pay period end (used only if missing in CSV)",
+    value=None,
+)
+
+st.caption(
+    "If your CSV provides year or pay period dates, those values take precedence."
+)
 
 if uploaded:
     df = pd.read_csv(uploaded)
