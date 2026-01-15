@@ -55,6 +55,21 @@ It is intended as **decision-support**, not an automated payroll engine.
 
 ---
 
+## Known Limitations
+
+- Public holiday observance in Australia is not uniform and may vary by state, LGA, locality, industry, award, or enterprise agreement.
+
+- Some state-declared holidays (e.g. Melbourne Cup Day in Victoria) are **regionally substituted** and do not apply uniformly across all LGAs or localities.  
+  This tool relies on curated regional rules to model these substitutions where known.
+
+- Regional holiday coverage depends on maintained rule data and may not be exhaustive or up to date for all locations.
+
+- Address geocoding may return approximate results for ambiguous or incomplete addresses.
+
+- This tool flags **potential payroll risk** for review and does not determine legal entitlement.
+
+---
+
 ## 🧠 Status & Confidence Model
 
 Each lookup returns:
