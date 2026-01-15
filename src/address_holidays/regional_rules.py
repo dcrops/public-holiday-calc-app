@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, date
 from pathlib import Path
@@ -34,34 +35,139 @@ def load_regional_rules(year: int) -> list[RegionalHolidayRule]:
 
     Safe behavior:
     - If the file doesn't exist, returns [].
-    - If the file exists but is empty (header only), returns [].
+    - If headers are invalid, returns [] with a warning.
+    - Invalid rows are skipped with warnings.
     """
     path = _data_dir() / f"regional_holidays_{year}.csv"
     if not path.exists():
         return []
 
     rules: list[RegionalHolidayRule] = []
+
     with path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+
+        # --- header validation (warnings only) ---
+        required_cols = {
+            "date",
+            "name",
+            "state",
+            "match_type",
+            "match_value",
+            "scope",
+            "applies_to",
+        }
+
+        fieldnames = set(reader.fieldnames or [])
+        missing = required_cols - fieldnames
+        if missing:
+            warnings.warn(
+                f"[regional_rules] {path.name}: missing required columns "
+                f"{sorted(missing)}. No regional rules loaded.",
+                RuntimeWarning,
+            )
+            return []
+
+        allowed_match_types = {"LGA", "POSTCODE", "LOCALITY"}
+        allowed_scopes = {"FULL_DAY", "HALF_DAY_AM", "HALF_DAY_PM"}
+        allowed_applies_to = {"ALL", "PUBLIC_SERVICE_ONLY", "BANKING_ONLY"}
+        allowed_states = {"ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"}
+
         for row in reader:
-            # Skip completely blank lines (sometimes happen in CSV editors)
+            # Skip completely blank lines
             if not row or not row.get("date"):
+                continue
+
+            row_num = reader.line_num
+
+            # Extract & normalize raw values
+            raw_date = (row.get("date") or "").strip()
+            raw_name = (row.get("name") or "").strip()
+            raw_state = (row.get("state") or "").strip().upper()
+            raw_match_type = (row.get("match_type") or "").strip().upper()
+            raw_match_value = (row.get("match_value") or "").strip()
+            raw_scope = (row.get("scope") or "").strip().upper()
+            raw_applies_to = (row.get("applies_to") or "").strip().upper()
+
+            # Required values present?
+            if not all([raw_date, raw_name, raw_state, raw_match_type, raw_match_value]):
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: missing required values. "
+                    "Row skipped.",
+                    RuntimeWarning,
+                )
+                continue
+
+            # Validate enums
+            if raw_match_type not in allowed_match_types:
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: invalid match_type "
+                    f"{raw_match_type!r}. Row skipped.",
+                    RuntimeWarning,
+                )
+                continue
+
+            if raw_scope and raw_scope not in allowed_scopes:
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: invalid scope "
+                    f"{raw_scope!r}. Row skipped.",
+                    RuntimeWarning,
+                )
+                continue
+
+            if raw_applies_to and raw_applies_to not in allowed_applies_to:
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: invalid applies_to "
+                    f"{raw_applies_to!r}. Row skipped.",
+                    RuntimeWarning,
+                )
+                continue
+
+            if raw_state not in allowed_states:
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: suspicious state "
+                    f"{raw_state!r}.",
+                    RuntimeWarning,
+                )
+
+            # Locality hygiene warning (warn only)
+            if raw_match_type == "LOCALITY":
+                mv_lower = raw_match_value.lower()
+                if any(tok in mv_lower for tok in ("city of", "shire of", "council", "municipality")):
+                    warnings.warn(
+                        f"[regional_rules] {path.name}:{row_num}: suspicious LOCALITY "
+                        f"match_value {raw_match_value!r}.",
+                        RuntimeWarning,
+                    )
+
+            # Parse date
+            try:
+                parsed_date = datetime.strptime(raw_date, "%Y-%m-%d").date()
+            except ValueError:
+                warnings.warn(
+                    f"[regional_rules] {path.name}:{row_num}: invalid date "
+                    f"{raw_date!r}. Expected YYYY-MM-DD. Row skipped.",
+                    RuntimeWarning,
+                )
                 continue
 
             rules.append(
                 RegionalHolidayRule(
-                    date=datetime.strptime(row["date"].strip(), "%Y-%m-%d").date(),
-                    name=row["name"].strip(),
-                    state=row["state"].strip().upper(),
-                    match_type=row["match_type"].strip().upper(),
-                    match_value=row["match_value"].strip(),
-                    scope=row["scope"].strip().upper(),
-                    applies_to=row["applies_to"].strip().upper(),
-                    source=row.get("source", "").strip(),
-                    notes=row.get("notes", "").strip(),
+                    date=parsed_date,
+                    name=raw_name,
+                    state=raw_state,
+                    match_type=raw_match_type,
+                    match_value=raw_match_value,
+                    scope=raw_scope or "FULL_DAY",
+                    applies_to=raw_applies_to or "ALL",
+                    source=(row.get("source") or "").strip(),
+                    notes=(row.get("notes") or "").strip(),
                 )
             )
+
     return rules
+
+
 
 
 def _norm(s: str | None) -> str:
