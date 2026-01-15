@@ -19,6 +19,14 @@ year = st.selectbox("Year", options=[2024, 2025, 2026, 2027], index=1)
 
 show_debug = st.toggle("🔎 Show debug (state/locality/LGA/postcode)", value=False)
 
+if show_debug:
+    if st.button("🧹 Clear geocode cache (dev)"):
+        from src.address_holidays.geocode_cache import clear_cache
+        n = clear_cache()
+        st.success(f"Cleared {n} cached geocode entr{'y' if n == 1 else 'ies'}.")
+        st.rerun()
+
+
 if st.button("Lookup", type="primary"):
     if not office_address.strip() and not home_address.strip():
         st.warning("Enter at least one address (office and/or home).")
