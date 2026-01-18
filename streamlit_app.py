@@ -1,9 +1,14 @@
 import streamlit as st
 import pandas as pd
 import traceback
-
+from pathlib import Path
 
 from src.address_holidays.service import lookup_address_info
+from src.address_holidays.reporting.public_holiday_report_md import (
+    generate_public_holiday_report,
+)
+from src.address_holidays.reporting.html_builder import build_html_and_pdf
+
 
 st.set_page_config(page_title="AU Address → LGA + Public Holidays", page_icon="🗺️", layout="wide")
 
@@ -190,6 +195,12 @@ st.caption("Upload a CSV with OFFICE/HOME work_mode. The app will calculate holi
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
 
+if uploaded is not None:
+    input_files = [uploaded.name]
+else:
+    input_files = []
+
+
 default_year = st.selectbox(
     "Default year (used only if missing in CSV)",
     options=[2024, 2025, 2026, 2027],
@@ -251,7 +262,9 @@ if uploaded:
 
                 holidays_in_period = r.get("holidays_in_period") or []
                 pay_period = r.get("pay_period") or {}
-
+                dates = sorted(
+                {h.get("date") for h in holidays_in_period if h.get("date")}
+                )
                 results.append({
                     "row": idx,
                     "employee_id": employee_id,
@@ -266,9 +279,7 @@ if uploaded:
                     "pay_period_start": pay_period.get("start") or "",
                     "pay_period_end": pay_period.get("end") or "",
                     "holiday_count_in_period": r.get("holiday_count_in_period"),
-                    "holiday_dates_in_period": "; ".join(
-                        h.get("date", "") for h in holidays_in_period if h.get("date")
-                    ),
+                    "holiday_dates_in_period": "; ".join(dates),
                     "status": r.get("status"),
                     "manual_review": r.get("manual_review"),
                     "confidence": r.get("confidence"),
@@ -288,6 +299,28 @@ if uploaded:
                 })
 
     out_df = pd.DataFrame(results)
+
+    # Choose / reuse your output directory
+    output_dir = Path("outputs") / "public_holiday_run"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    results_csv_path = output_dir / "payroll_holiday_check_results.csv"
+    out_df.to_csv(results_csv_path, index=False)
+
+    report_md_path = generate_public_holiday_report(
+        findings_csv=results_csv_path,
+        output_dir=output_dir,
+        input_files=input_files,
+    )
+
+    html_path, pdf_path = build_html_and_pdf(
+        md_path=report_md_path,
+        out_dir=output_dir,
+        title="Public Holiday Compliance Review",
+    )
+
+
+
     st.dataframe(out_df, use_container_width=True)
 
     st.download_button(
@@ -296,4 +329,31 @@ if uploaded:
         file_name="payroll_holiday_check_results.csv",
         mime="text/csv",
     )
+
+    with open(report_md_path, "rb") as f:
+        st.download_button(
+            "⬇ Download audit report (Markdown)",
+            f,
+            file_name="public_holiday_compliance_report.md",
+            mime="text/markdown",
+        )
+
+    with open(html_path, "rb") as f:
+        st.download_button(
+            "⬇ Download audit report (HTML)",
+            f,
+            file_name="public_holiday_compliance_report.html",
+            mime="text/html",
+        )
+
+    if pdf_path and pdf_path.exists():
+        with open(pdf_path, "rb") as f:
+            st.download_button(
+                "⬇ Download audit report (PDF – best effort)",
+                f,
+                file_name="public_holiday_compliance_report.pdf",
+                mime="application/pdf",
+            )
+
+
 
