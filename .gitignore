@@ -21,3 +21,6 @@ Thumbs.db
 
 # GIS geopackages (very large)
 data/**/*.gpkg
+
+outputs/
+

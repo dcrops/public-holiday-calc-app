@@ -29,8 +29,6 @@ DISCLAIMER_BLOCK = (
     "This review does **not** calculate pay outcomes, interpret awards or enterprise agreements, or determine whether an underpayment has occurred. Findings represent potential areas for review only."
 )
 
-
-
 STATUS_ORDER = [
     "NOT_FOUND",
     "LOW_CONFIDENCE",
@@ -39,6 +37,27 @@ STATUS_ORDER = [
     "OK",
     "INFO",
 ]
+
+SEVERITY_EXPLANATION = """
+    ### Severity classification (how to read this report)
+
+    Findings are classified to help prioritise review effort based on **potential public holiday entitlement impact**, not data quality alone:
+
+    Applicable work location refers to the geographic location used to determine which Australian public holiday calendar applies for the work performed during the review period. 
+    This may differ from an employee’s residential address or contractual office location.
+        
+    - **High** – The applicable public holiday calendar could not be reliably determined
+    (for example, unresolved or ambiguous work location). Public holiday entitlements
+    **cannot be confirmed** without manual validation.
+
+    - **Medium** – The work location was resolved with lower confidence and **one or more
+    public holidays fall within the employee’s pay period**. Entitlements are likely
+    correct but should be reviewed to confirm the correct calendar was applied.
+
+    - **Low** – Minor location uncertainty was identified, but **no public holidays fall
+    within the employee’s pay period**. These records are unlikely to result in incorrect
+    public holiday entitlements.
+"""
 
 
 def _as_bool(value: Any) -> bool:
@@ -79,31 +98,32 @@ def _status_sort_key(status: str) -> Tuple[int, str]:
     return (999, s)
 
 
-def _status_to_severity(status: str, manual_review: bool) -> str:
+def _status_to_severity(status: str | None, manual_review: bool, holiday_count_in_period: int) -> str:
     """
-    Conservative mapping for report presentation.
-    We deliberately avoid "underpayment" language and use review-oriented severities.
+    Map a row's status/manual_review + entitlement impact into a report severity bucket.
+
+    Principle:
+    - Severity should reflect entitlement risk, not just input cleanliness.
+    - Location uncertainty only becomes MED/HIGH when it affects holiday applicability for a pay period.
     """
     s = (status or "").strip().upper()
+    hc = int(holiday_count_in_period or 0)
 
-    # Highest priority issues: we couldn't resolve the address/location.
-    if s == "NOT_FOUND":
+    # Highest risk: cannot determine applicable holiday calendar at all
+    if s in {"NOT_FOUND", "AMBIGUOUS_LGA"}:
         return "HIGH"
 
-    # Location is resolved but confidence is low; needs human validation.
+    # Location resolved but uncertain: severity depends on whether holidays actually apply
     if s == "LOW_CONFIDENCE":
-        return "MED"
+        return "MED" if hc > 0 else "LOW"
 
-    # Generic "review required" style statuses.
-    if s in {"REVIEW_REQUIRED", "MISMATCH"}:
-        return "MED"
+    # Any other manual review flags: treat as MED only if there is potential entitlement impact
+    if manual_review:
+        return "MED" if hc > 0 else "LOW"
 
-    # If the engine says OK but it still flags manual review, keep it low.
-    if manual_review and s in {"OK", "INFO", ""}:
-        return "LOW"
-
-    # Default: informational.
+    # Otherwise: informational / no action required
     return "INFO"
+
 
 def _as_int(value: object, default: int = 0) -> int:
     try:
@@ -172,7 +192,12 @@ def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         status = _clean(r.get("status")) or "UNKNOWN"
         by_status[status] = by_status.get(status, 0) + 1
 
-        sev = _status_to_severity(status, manual_review=bool(r.get("manual_review")))
+        hc = _as_int(r.get("holiday_count_in_period"), 0)
+        sev = _status_to_severity(
+            status,
+            manual_review=bool(r.get("manual_review") is True),
+            holiday_count_in_period=hc,
+        )
         by_sev[sev] = by_sev.get(sev, 0) + 1
 
         if status.upper() == "NOT_FOUND":
@@ -279,7 +304,12 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
     # Detailed findings: group by severity then status
     def find_key(r: Dict[str, Any]) -> Tuple[int, int, str]:
         status = _clean(r.get("status"))
-        sev = _status_to_severity(status, manual_review=bool(r.get("manual_review")))
+        hc = _as_int(r.get("holiday_count_in_period"), 0)
+        sev = _status_to_severity(
+            status,
+            manual_review=bool(r.get("manual_review") is True),
+            holiday_count_in_period=hc,
+        )
         sev_order = {"HIGH": 0, "MED": 1, "LOW": 2, "INFO": 3}.get(sev, 9)
         status_order = _status_sort_key(status)[0]
         emp = _clean(r.get("employee_id"))
@@ -291,8 +321,12 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
     for r in findings_sorted:
         status = _clean(r.get("status")) or "UNKNOWN"
         manual = bool(r.get("manual_review"))
-        sev = _status_to_severity(status, manual_review=manual)
-
+        hc = _as_int(r.get("holiday_count_in_period"), 0)
+        sev = _status_to_severity(
+            status,
+            manual_review=bool(r.get("manual_review") is True),
+            holiday_count_in_period=hc,
+        )
         emp = _clean(r.get("employee_id"))
         work_mode = _clean(r.get("work_mode"))
         addr_in = _clean(r.get("input_address"))
@@ -342,6 +376,24 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                 why = "This identifies holidays in-period that may affect pay treatment."
                 next_action = "Cross-check payroll pay events for the listed holiday dates."
 
+        # Build labelled holiday list for evidence (Name + Date)
+        holiday_dates_raw = (r.get("holiday_dates_in_period") or "").strip()
+        holiday_names_raw = (r.get("holiday_names_in_period") or "").strip()
+
+        labelled_holidays = "-"
+        if holiday_dates_raw:
+            dates = [d.strip() for d in holiday_dates_raw.split(";") if d.strip()]
+            names = [n.strip() for n in holiday_names_raw.split(";") if n.strip()] if holiday_names_raw else []
+
+            items = []
+            for i, d in enumerate(dates):
+                date_label = _fmt_iso_to_long(d) if len(d) == 10 and d[4] == "-" else d
+                if i < len(names) and names[i]:
+                    items.append(f"{names[i]} ({date_label})")
+                else:
+                    items.append(date_label)
+
+            labelled_holidays = "; ".join(items)
 
         evidence_lines = [
             f"- **Employee:** `{emp}`",
@@ -350,7 +402,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
             f"- **Resolved address:** {addr_fmt or '—'}",
             f"- **Resolved location:** {', '.join([x for x in [locality, state, postcode, lga] if x]) or '—'}",
             f"- **Pay period:** {pstart or '—'} → {pend or '—'}",
-            f"- **Holidays in period:** {hcount} ({hdates or '—'})",
+            f"- **Holidays in period:** {hcount} ({labelled_holidays})",
             f"- **Status:** `{status}`  |  **Severity:** **{sev}**  |  **Manual review:** `{manual}`  |  **Confidence:** `{confidence:.2f}`",
         ]
 
@@ -360,7 +412,8 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
         if lga_method:
             evidence_lines.append(f"- **LGA resolution method:** {lga_method}")
         if rules_applied:
-            evidence_lines.append(f"- **Rules applied:** {rules_applied}")
+            evidence_lines.append(
+                f"- **Applicable regional holiday rules (full year):** {rules_applied}")
         if replacement:
             evidence_lines.append(f"- **Replacement applied:** {replacement}")
 
@@ -411,6 +464,8 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
         "",
         exec_bullets,
         "",
+        SEVERITY_EXPLANATION,
+        "",
         build_holiday_applicability_overview(findings),
         "",
         "## Scope & Methodology",
@@ -422,6 +477,9 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
         "- The review does **not** independently calculate pay, loadings, or other entitlements; those remain subject to your payroll setup and industrial instruments.",
         "",
         "## Key Findings",
+        "",
+        "Severity is determined based on the ability to confirm the correct public holiday ",
+        " calendar and whether public holidays fall within the employee’s pay period."
         "",
         "### Findings by severity",
         "",
@@ -471,16 +529,30 @@ def build_holiday_applicability_overview(findings: List[Dict[str, Any]]) -> str:
     one = sum(1 for c in counts if c == 1)
     two_plus = sum(1 for c in counts if c >= 2)
 
-    # Top holiday dates (frequency)
-    freq: Dict[str, int] = {}
-    for r in findings:
-        s = (r.get("holiday_dates_in_period") or "").strip()
-        if not s:
-            continue
-        for dt in [x.strip() for x in s.split(";") if x.strip()]:
-            freq[dt] = freq.get(dt, 0) + 1
+    # Top holiday dates (frequency), optionally including names
+    # key = (date_str, name_str)
+    freq: Dict[Tuple[str, str], int] = {}
 
-    top = sorted(freq.items(), key=lambda x: (-x[1], x[0]))[:10]
+    for r in findings:
+        dates_str = (r.get("holiday_dates_in_period") or "").strip()
+        names_str = (r.get("holiday_names_in_period") or "").strip()
+
+        if not dates_str:
+            continue
+
+        date_parts = [x.strip() for x in dates_str.split(";") if x.strip()]
+        name_parts = [x.strip() for x in names_str.split(";") if x.strip()] if names_str else []
+
+        for idx, dt in enumerate(date_parts):
+            name = name_parts[idx] if idx < len(name_parts) else ""
+            key = (dt, name)
+            freq[key] = freq.get(key, 0) + 1
+
+    # Sort by frequency desc, then by date, then by name
+    top = sorted(
+        freq.items(),
+        key=lambda kv: (-kv[1], kv[0][0], kv[0][1])
+    )[:10]
 
     lines = [
         "## Holiday applicability overview",
@@ -503,14 +575,18 @@ def build_holiday_applicability_overview(findings: List[Dict[str, Any]]) -> str:
         lines += [
             "### Most common holiday dates in period",
             "",
-            "| Holiday date | Records impacted |",
-            "|---|---:|",
+            "| Holiday date | Holiday name | Records impacted |",
+            "|---|---|---:|",
         ]
-        for d, n in top:
-            lines.append(f"| { _fmt_iso_to_long(d) if len(d)==10 and d[4]=='-' else d } | {n} |")
+        for (d, name), n in top:
+            # Format ISO date -> 01 Jan 2025 style when possible
+            disp_date = _fmt_iso_to_long(d) if len(d) == 10 and d[4] == "-" else d
+            disp_name = name or "—"
+            lines.append(f"| {disp_date} | {disp_name} | {n} |")
         lines.append("")
 
     return "\n".join(lines)
+
 
 def write_report_markdown(md: str, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -262,9 +262,21 @@ if uploaded:
 
                 holidays_in_period = r.get("holidays_in_period") or []
                 pay_period = r.get("pay_period") or {}
-                dates = sorted(
-                {h.get("date") for h in holidays_in_period if h.get("date")}
-                )
+
+                # Build a sorted list of unique holiday dates
+                dates = sorted({h.get("date") for h in holidays_in_period if h.get("date")})
+
+                # Map date -> name (first name wins if duplicates)
+                names_by_date = {}
+                for h in holidays_in_period:
+                    d = h.get("date")
+                    if not d:
+                        continue
+                    n = h.get("name") or h.get("localName", "") or ""
+                    names_by_date.setdefault(d, n)
+
+                # Names aligned to the sorted dates list
+                names = [names_by_date.get(d, "") for d in dates]
                 results.append({
                     "row": idx,
                     "employee_id": employee_id,
@@ -280,6 +292,7 @@ if uploaded:
                     "pay_period_end": pay_period.get("end") or "",
                     "holiday_count_in_period": r.get("holiday_count_in_period"),
                     "holiday_dates_in_period": "; ".join(dates),
+                    "holiday_names_in_period": "; ".join(names),
                     "status": r.get("status"),
                     "manual_review": r.get("manual_review"),
                     "confidence": r.get("confidence"),
