@@ -1,3 +1,8 @@
+# NOTE:
+# This module is the sole source of base public holidays.
+# Do not introduce CSV-based "important dates" or observance calendars here.
+# Regional and replacement holidays are handled via regional_rules.py only.
+
 from __future__ import annotations
 
 import requests
@@ -29,16 +34,3 @@ def filter_holidays_for_subdivision(holidays: list[dict], subdivision_code: str)
 
     return out
 
-
-
-def get_vic_public_holidays(year: int) -> list[dict]:
-    """
-    Return VIC public holidays for the given year as a tidy list.
-    """
-    holidays = get_au_public_holidays(year)
-    vic = filter_holidays_for_subdivision(holidays, "VIC")
-
-    # Tidy + sort
-    tidy = [{"date": h["date"], "name": h.get("name") or h.get("localName")} for h in vic]
-    tidy.sort(key=lambda x: x["date"])
-    return tidy

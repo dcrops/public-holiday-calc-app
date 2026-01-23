@@ -124,6 +124,58 @@ def _status_to_severity(status: str | None, manual_review: bool, holiday_count_i
     # Otherwise: informational / no action required
     return "INFO"
 
+def _row_to_severity(row: Dict[str, Any]) -> str:
+    """
+    Determine severity for a single findings row.
+
+    Policy:
+    - HIGH  : We cannot reliably determine the applicable calendar at all
+              (missing address, NOT_FOUND, AMBIGUOUS_LGA).
+    - MED   : Location is genuinely uncertain *and* holidays fall in the pay period.
+    - LOW   : Location is uncertain but either (a) no holidays fall in period,
+              or (b) uncertainty is minor.
+    - INFO  : Location is resolved to an acceptable level for triage purposes.
+    """
+
+    input_address = _clean(row.get("input_address"))
+    status = (_clean(row.get("status")) or "").upper()
+    manual_review = bool(row.get("manual_review") is True)
+    holiday_count = _as_int(row.get("holiday_count_in_period"), 0)
+    confidence = _as_float(row.get("confidence"), 0.0)
+
+    # 1. No usable work address at all => highest risk
+    if not input_address:
+        return "HIGH"
+
+    # 2. Engine says we could not reliably determine the calendar
+    if status in {"NOT_FOUND", "AMBIGUOUS_LGA"}:
+        return "HIGH"
+
+    # 3. LOW_CONFIDENCE handling (most of the real-world fuzziness)
+    if status == "LOW_CONFIDENCE":
+        # Very high confidence and no manual_review flag → treat as informational
+        if confidence >= 0.90 and not manual_review:
+            return "INFO"
+
+        # Reasonable confidence, no holidays in period → low risk
+        if confidence >= 0.75 and holiday_count == 0:
+            return "LOW"
+
+        # Otherwise, if there are holidays in period → medium risk
+        if holiday_count > 0:
+            return "MED"
+
+        # No holidays in period, but still low confidence → low risk
+        return "LOW"
+
+    # 4. Any other status with a manual review flag
+    if manual_review:
+        if holiday_count > 0:
+            return "MED"
+        return "LOW"
+
+    # 5. Everything else (resolved, no concerning flags)
+    return "INFO"
 
 def _as_int(value: object, default: int = 0) -> int:
     try:
@@ -155,6 +207,8 @@ class ReportContext:
     findings_csv: Path
     output_dir: Path
     input_files: List[str]
+    period_start: Optional[date]
+    period_end: Optional[date]
 
 
 def load_findings(findings_csv: Path) -> List[Dict[str, Any]]:
@@ -171,12 +225,40 @@ def load_findings(findings_csv: Path) -> List[Dict[str, Any]]:
 
 
 def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
-    # Period (derived from CSV)
-    starts = sorted({_clean(r.get("pay_period_start")) for r in findings if _clean(r.get("pay_period_start"))})
-    ends = sorted({_clean(r.get("pay_period_end")) for r in findings if _clean(r.get("pay_period_end"))})
+    # ----- 1. Try to derive period from explicit pay-period fields -----
+    starts = sorted(
+        {_clean(r.get("pay_period_start")) for r in findings if _clean(r.get("pay_period_start"))}
+    )
+    ends = sorted(
+        {_clean(r.get("pay_period_end")) for r in findings if _clean(r.get("pay_period_end"))}
+    )
 
     period_start = starts[0] if starts else ""
     period_end = ends[-1] if ends else ""
+
+    # ----- 2. Fallback: infer from holiday_dates_in_period (earliest → latest) -----
+    if not period_start or not period_end:
+        all_dates: List[date] = []
+        for r in findings:
+            dates_str = _clean(r.get("holiday_dates_in_period"))
+            if not dates_str:
+                continue
+
+            # holiday_dates_in_period is ;-separated ISO date strings
+            for part in dates_str.split(";"):
+                d = part.strip()
+                if not d:
+                    continue
+                try:
+                    all_dates.append(date.fromisoformat(d))
+                except ValueError:
+                    # ignore anything that isn't an ISO date
+                    continue
+
+        if all_dates:
+            all_dates.sort()
+            period_start = all_dates[0].isoformat()
+            period_end = all_dates[-1].isoformat()
 
     total = len(findings)
     manual_review_count = sum(1 for r in findings if r.get("manual_review") is True)
@@ -189,15 +271,16 @@ def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
     low_conf = 0
 
     for r in findings:
-        status = _clean(r.get("status")) or "UNKNOWN"
+        raw_status = _clean(r.get("status"))
+        input_addr = _clean(r.get("input_address"))
+        if not raw_status and not input_addr:
+            status = "MISSING_ADDRESS"
+        else:
+            status = raw_status or "UNKNOWN"
+
         by_status[status] = by_status.get(status, 0) + 1
 
-        hc = _as_int(r.get("holiday_count_in_period"), 0)
-        sev = _status_to_severity(
-            status,
-            manual_review=bool(r.get("manual_review") is True),
-            holiday_count_in_period=hc,
-        )
+        sev = _row_to_severity(r)
         by_sev[sev] = by_sev.get(sev, 0) + 1
 
         if status.upper() == "NOT_FOUND":
@@ -223,8 +306,7 @@ def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         else:
             two_plus_holidays += 1
 
-
-        # A simple, deterministic "key messages" list
+    # A simple, deterministic "key messages" list
     key_messages: List[str] = []
 
     if total > 0:
@@ -267,7 +349,6 @@ def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         "where public holiday entitlement depends on confirmation of the employee’s applicable work location."
     )
 
-
     return {
         "period_start": period_start,
         "period_end": period_end,
@@ -277,6 +358,7 @@ def summarise(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         "by_severity": by_sev,
         "key_messages": key_messages,
     }
+
 
 
 def _md_table(headers: List[str], rows: List[List[str]]) -> str:
@@ -291,8 +373,16 @@ def _md_table(headers: List[str], rows: List[List[str]]) -> str:
 
 def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary: Dict[str, Any]) -> str:
     prepared = ctx.prepared_as_at.isoformat()
-    period_start = summary.get("period_start", "")
-    period_end = summary.get("period_end", "")
+    period_start = (
+        fmt_date(ctx.period_start)
+        if ctx.period_start
+        else fmt_iso_date(summary.get("period_start"))
+    )
+    period_end = (
+        fmt_date(ctx.period_end)
+        if ctx.period_end
+        else fmt_iso_date(summary.get("period_end"))
+    )
 
     # Executive summary bullets
     exec_bullets = "\n".join([f"- {m}" for m in summary.get("key_messages", [])]) or "- No records were provided."
@@ -304,12 +394,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
     # Detailed findings: group by severity then status
     def find_key(r: Dict[str, Any]) -> Tuple[int, int, str]:
         status = _clean(r.get("status"))
-        hc = _as_int(r.get("holiday_count_in_period"), 0)
-        sev = _status_to_severity(
-            status,
-            manual_review=bool(r.get("manual_review") is True),
-            holiday_count_in_period=hc,
-        )
+        sev = _row_to_severity(r)
         sev_order = {"HIGH": 0, "MED": 1, "LOW": 2, "INFO": 3}.get(sev, 9)
         status_order = _status_sort_key(status)[0]
         emp = _clean(r.get("employee_id"))
@@ -319,14 +404,10 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
 
     blocks: List[str] = []
     for r in findings_sorted:
-        status = _clean(r.get("status")) or "UNKNOWN"
+        # keep a raw status for display (heading)
+        status_raw = _clean(r.get("status")) or "UNKNOWN"
         manual = bool(r.get("manual_review"))
-        hc = _as_int(r.get("holiday_count_in_period"), 0)
-        sev = _status_to_severity(
-            status,
-            manual_review=bool(r.get("manual_review") is True),
-            holiday_count_in_period=hc,
-        )
+        sev = _row_to_severity(r)
         emp = _clean(r.get("employee_id"))
         work_mode = _clean(r.get("work_mode"))
         addr_in = _clean(r.get("input_address"))
@@ -347,14 +428,19 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
         replacement = _clean(r.get("replacement_applied"))
 
         # “Why it matters” and “Next action” – deterministic, status-driven
+                # “Why it matters” and “Next action” – deterministic, but now also address-aware
         manual_review = bool(r.get("manual_review") is True)
-        status = (r.get("status") or "").upper()
+        status = status_raw.upper()
+        missing_address = not addr_in  # addr_in already computed above
 
-        if status == "NOT_FOUND":
+        if missing_address:
+            msg = "No work location is recorded for this employee; public holiday applicability cannot be determined."
+            why = "Without any work address or location, the applicable public holiday calendar cannot be identified, so entitlements depending on public holidays cannot be confirmed."
+            next_action = "Record the employee’s primary work location (e.g. usual worksite or region) and rerun the public holiday check."
+        elif status == "NOT_FOUND":
             msg = "Work location could not be resolved; public holiday applicability cannot be determined."
             why = "Without a resolvable work location, public holiday calendars cannot be applied reliably."
             next_action = "Correct the address input (include suburb + state/postcode), rerun, and validate the result."
-
         elif status == "LOW_CONFIDENCE":
             if manual_review:
                 msg = "Public holiday applicability was derived, but entitlement outcome cannot be confirmed until location is validated."
@@ -364,9 +450,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                 msg = "Public holiday applicability was derived for the pay period based on recorded work location."
                 why = "Public holiday entitlements are location-dependent; holidays in-period drive correct treatment."
                 next_action = "Confirm payroll configuration/pay events align with the applicable holiday calendar for this location."
-
         else:
-            # e.g. AMBIGUOUS_LGA etc
             if manual_review:
                 msg = "Entitlement outcome cannot be confirmed without further validation due to uncertainty in applicable location."
                 why = "Ambiguity in LGA/locality mapping can change applicable regional holidays."
@@ -375,6 +459,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                 msg = "Public holiday applicability was derived for the pay period."
                 why = "This identifies holidays in-period that may affect pay treatment."
                 next_action = "Cross-check payroll pay events for the listed holiday dates."
+
 
         # Build labelled holiday list for evidence (Name + Date)
         holiday_dates_raw = (r.get("holiday_dates_in_period") or "").strip()
@@ -394,6 +479,8 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                     items.append(date_label)
 
             labelled_holidays = "; ".join(items)
+        
+        status_display = "MISSING_ADDRESS" if missing_address else (status or "UNKNOWN")
 
         evidence_lines = [
             f"- **Employee:** `{emp}`",
@@ -403,7 +490,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
             f"- **Resolved location:** {', '.join([x for x in [locality, state, postcode, lga] if x]) or '—'}",
             f"- **Pay period:** {pstart or '—'} → {pend or '—'}",
             f"- **Holidays in period:** {hcount} ({labelled_holidays})",
-            f"- **Status:** `{status}`  |  **Severity:** **{sev}**  |  **Manual review:** `{manual}`  |  **Confidence:** `{confidence:.2f}`",
+            f"- **Status:** `{status_display}`  |  **Severity:** **{sev}**  |  **Manual review:** `{manual}`  |  **Confidence:** `{confidence:.2f}`",
         ]
 
         # Optional evidence lines (only if present)
@@ -420,7 +507,8 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
         blocks.append(
             "\n".join(
                 [
-                    f"### {sev} — {status} — Employee {emp}",
+                    # use status_display in the heading so MISSING_ADDRESS etc show up
+                    f"### {sev} — {status_display} — Employee {emp}",
                     "",
                     f"**Finding**: {msg}",
                     "",
@@ -428,6 +516,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                     "",
                     *evidence_lines,
                     "",
+                    # show status_upper if present, otherwise fall back to status_raw
                     f"**Why it matters**: {why}",
                     "",
                     f"**Recommended next action**: {next_action}",
@@ -435,6 +524,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
                 ]
             )
         )
+
 
     detailed_section = "\n".join(blocks) if blocks else "_No findings to display._"
 
@@ -600,12 +690,17 @@ def generate_public_holiday_report(
     output_dir: Path,
     *,
     input_files: Optional[List[str]] = None,
+    period_start: Optional[date] = None,
+    period_end: Optional[date] = None,
 ) -> Path:
+
     ctx = ReportContext(
         prepared_as_at=date.today(),
         findings_csv=findings_csv,
         output_dir=output_dir,
         input_files=input_files or [],
+        period_start=period_start,
+        period_end=period_end,
     )
     findings = load_findings(findings_csv)
     summary = summarise(findings)

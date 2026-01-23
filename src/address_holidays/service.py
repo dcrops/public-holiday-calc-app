@@ -33,7 +33,9 @@ STATUS_ERROR = "ERROR"
 def _confidence_from_geocode_quality(q: str | None) -> float:
     """Coarse confidence mapping; good enough for v1 audit trail."""
     if not q:
-        return 0.5
+        # Google often omits location_type for otherwise valid results.
+        # Treat as acceptable confidence for holiday applicability.
+        return 0.7
     q = q.upper()
     if q == "ROOFTOP":
         return 1.0
@@ -237,8 +239,9 @@ def lookup_address_info(
 
         holidays = merge_holidays(holidays, matched_rules)
 
-        # If we only have approximate geocode quality, downgrade outcome to LOW_CONFIDENCE
-        if audit["confidence"] < 0.7 and audit["status"] == STATUS_OK:
+       # If we only have very approximate geocode quality, downgrade outcome to LOW_CONFIDENCE
+        # (GEOMETRIC_CENTER and better are treated as acceptable for this review.)
+        if audit["confidence"] < 0.6 and audit["status"] == STATUS_OK:
             audit["status"] = STATUS_LOW_CONFIDENCE
 
         # If somehow no holidays matched after filtering (rare), flag it
