@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import certifi
 import os
 import re
 import requests
@@ -21,6 +22,7 @@ STATE_MAP = {
 load_dotenv(find_dotenv(), override=False)
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+print("API KEY FOUND:", bool(GOOGLE_MAPS_API_KEY))
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 CACHE_VERSION = "v3"
@@ -105,36 +107,61 @@ def _is_street_level_result(result: dict) -> bool:
 
 def geocode_address(address: str) -> dict:
     cache_key = f"{CACHE_VERSION}|" + " ".join(address.lower().split())
+    print("GEOCODE FUNCTION CALLED:", address)
+    print("CACHE KEY:", cache_key)
 
 
     cached = get_cached(cache_key)
     if cached:
         return cached
 
+    print("CACHE HIT:", bool(cached))
+
     def _call_geocode(query: str) -> dict:
         params = {"address": query, "key": GOOGLE_MAPS_API_KEY}
-        resp = requests.get(GEOCODE_URL, params=params, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        status = data.get("status")
+
+        try:
+            print("CALLING GOOGLE GEOCODE:", query)
+            print("API KEY PRESENT:", bool(GOOGLE_MAPS_API_KEY))
+
+            resp = requests.get(
+                GEOCODE_URL,
+                params=params,
+                timeout=20,
+                verify=certifi.where(),
+            )
+
+            print("HTTP STATUS:", resp.status_code)
+            print("RAW RESPONSE TEXT:", resp.text[:1000])
+
+            resp.raise_for_status()
+
+            data = resp.json()
+            status = data.get("status")
+
+            print("GOOGLE STATUS:", status)
+            print("GOOGLE RESPONSE:", data)
+
+        except Exception as e:
+            print("REQUEST ERROR:", repr(e))
+            raise
 
         if status == "ZERO_RESULTS":
             raise ValueError(
-                "Address not found. Try adding suburb + state/postcode (e.g. 'Brunswick VIC 3056') "
-                "or check spelling."
+                "Address not found. Try adding suburb + state/postcode "
+                "(e.g. 'Brunswick VIC 3056') or check spelling."
             )
 
         if status != "OK":
-            raise ValueError(f"Geocoding failed: {status}")
+            error_message = data.get("error_message", "")
+            raise ValueError(f"Geocoding failed: {status} - {error_message}")
 
         result = data["results"][0]
 
-        # Only enforce street-level quality when the user intended a street-level address.
-        # Allow suburb/postcode-only queries to resolve (they'll be lower confidence downstream).
         if _looks_like_street_address(query) and not _is_street_level_result(result):
             raise ValueError(
-                "Address not found. Try adding suburb + state/postcode (e.g. 'Brunswick VIC 3056') "
-                "or check spelling."
+                "Address not found. Try adding suburb + state/postcode "
+                "(e.g. 'Brunswick VIC 3056') or check spelling."
             )
 
         location = result["geometry"]["location"]
@@ -163,7 +190,6 @@ def geocode_address(address: str) -> dict:
             "locality": locality,
             "geocode_query_used": query,
             "is_fallback_match": query.strip() != address.strip(),
-            # Optional: pass through quality signal if you want it later
             "location_type": result.get("geometry", {}).get("location_type"),
         }
 

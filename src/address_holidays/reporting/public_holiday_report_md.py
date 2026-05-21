@@ -59,6 +59,17 @@ SEVERITY_EXPLANATION = """
     public holiday entitlements.
 """
 
+def _severity_badge(sev: str) -> str:
+    sev = (sev or "").upper()
+    if sev == "HIGH":
+        return '<span class="badge-high">High</span>'
+    if sev == "MED":
+        return '<span class="badge-medium">Medium</span>'
+    if sev == "LOW":
+        return '<span class="badge-low">Low</span>'
+    if sev == "INFO":
+        return '<span class="badge-info">Info</span>'
+    return sev
 
 def _as_bool(value: Any) -> bool:
     if value is None:
@@ -388,7 +399,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
     exec_bullets = "\n".join([f"- {m}" for m in summary.get("key_messages", [])]) or "- No records were provided."
 
     # Summary tables
-    sev_rows = [[k, str(v)] for k, v in summary.get("by_severity", {}).items()]
+    sev_rows = [[_severity_badge(k), str(v)] for k, v in summary.get("by_severity", {}).items()]
     status_rows = [[k, str(v)] for k, v in summary.get("by_status", {}).items()]
 
     # Detailed findings: group by severity then status
@@ -508,7 +519,7 @@ def render_markdown(ctx: ReportContext, findings: List[Dict[str, Any]], summary:
             "\n".join(
                 [
                     # use status_display in the heading so MISSING_ADDRESS etc show up
-                    f"### {sev} — {status_display} — Employee {emp}",
+                    f"### {_severity_badge(sev)} — {status_display} — Employee {emp}",
                     "",
                     f"**Finding**: {msg}",
                     "",

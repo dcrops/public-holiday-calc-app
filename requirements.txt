@@ -8,3 +8,4 @@ fiona
 python-dateutil
 python-dotenv
 Markdown>=3.5
+weasyprint>=61.0

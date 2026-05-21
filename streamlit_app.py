@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import traceback
 from pathlib import Path
+from PIL import Image
+from textwrap import dedent
 
 from src.address_holidays.service import lookup_address_info
 from src.address_holidays.reporting.public_holiday_report_md import (
@@ -10,13 +12,45 @@ from src.address_holidays.reporting.public_holiday_report_md import (
 from src.address_holidays.reporting.html_builder import build_html_and_pdf
 
 
-st.set_page_config(page_title="AU Address → LGA + Public Holidays", page_icon="🗺️", layout="wide")
-
-st.title("🗺️ Australian Address → LGA & Public Holidays")
-st.caption(
-    "Enter an Australian address. The app geocodes it, resolves the LGA, "
-    "and lists applicable national, state, and regional public holidays for the selected year."
+# ---------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------
+st.set_page_config(
+    page_title="CRC | Public Holiday Entitlements",
+    page_icon="🗺️",
+    layout="wide"
 )
+
+# ---------------------------------------------------
+# LOAD LOGO
+# ---------------------------------------------------
+logo = Image.open("assets/crc_logo.png")
+
+# ---------------------------------------------------
+# HEADER
+# ---------------------------------------------------
+col1, col2 = st.columns([1, 7])
+
+with col1:
+    st.image(logo, width=90)
+
+with col2:
+    st.markdown(
+        dedent("""
+        <div style='font-size:14px; letter-spacing:0.25em; color:#A1A1AA; font-weight:600; margin-bottom:6px; text-transform:uppercase;'>
+            Chase Risk & Compliance
+        </div>
+
+        <div style='font-size:42px; font-weight:800; line-height:1.1; margin-bottom:10px; color:white;'>
+            Australian Address → LGA & Public Holidays
+        </div>
+
+        <div style='font-size:17px; color:#A1A1AA; max-width:900px; line-height:1.6;'>
+            Governance-aware operational entitlement intelligence for national, state, LGA and locality-specific public holiday logic.
+        </div>
+        """),
+        unsafe_allow_html=True,
+    )
 
 office_address = st.text_input("Office address", placeholder="e.g. 123 Collins St, Melbourne VIC")
 home_address = st.text_input("Home address", placeholder="e.g. 10 Smith St, Brunswick VIC")
