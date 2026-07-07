@@ -16,7 +16,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <meta charset="utf-8" />
   <title>{title}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="report.css" />
+  <style>
+{css}
+  </style>
 </head>
 <body>
   <div class="report-container">
@@ -51,19 +53,16 @@ def build_html_and_pdf(
         extensions=["extra", "tables", "fenced_code"],
     )
 
-    full_html = HTML_TEMPLATE.format(title=title, content=body_html)
+    css_text = CSS_SOURCE.read_text(encoding="utf-8") if CSS_SOURCE.exists() else ""
+
+    full_html = HTML_TEMPLATE.format(
+        title=title,
+        content=body_html,
+        css=css_text,
+    )
 
     html_path = out_dir / "report.html"
     html_path.write_text(full_html, encoding="utf-8")
-
-    # Copy shared CSS alongside the HTML so <link href="report.css"> works
-    if CSS_SOURCE.exists():
-        css_target = out_dir / CSS_SOURCE.name
-        try:
-            copyfile(CSS_SOURCE, css_target)
-        except OSError:
-            # Non-fatal: HTML will still work, just without custom styling
-            pass
 
     # Best-effort PDF via WeasyPrint
     pdf_path: Path | None = None
